@@ -1,0 +1,21 @@
+let csrf="";
+const $=id=>document.getElementById(id);
+async function api(url,opts={}){const method=(opts.method||"GET").toUpperCase();const headers={"Content-Type":"application/json",...(opts.headers||{})};if(!["GET","HEAD"].includes(method))headers["x-csrf-token"]=csrf;const r=await fetch("/api"+url,{...opts,headers,credentials:"same-origin"});const data=await r.json().catch(()=>({error:"Server response error"}));if(!r.ok)throw new Error(data.error||"Request failed");if(data.csrf)csrf=data.csrf;return data}
+function toast(s){$("toast").textContent=s;$("toast").classList.add("show");setTimeout(()=>$("toast").classList.remove("show"),2500)}
+function modal(id,on=true){$(id).classList.toggle("show",on)}
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+let mode="login",me=null,campaigns=[];
+function setMode(m){mode=m;$("authTitle").textContent=m==="login"?"Sign in":"Create account";$("loginTab").classList.toggle("active",m==="login");$("registerTab").classList.toggle("active",m==="register");$("usernameWrap").hidden=m!=="register";$("emailWrap").hidden=m!=="register";$("identity").parentElement.hidden=m==="register";$("password").autocomplete=m==="login"?"current-password":"new-password";$("password").value=""}
+async function loadCampaigns(){try{const d=await api("/campaigns");campaigns=d.campaigns;$("campaignGrid").innerHTML=campaigns.map(c=>`<article class="card"><small>${esc(c.category)}</small><h3>${esc(c.title)}</h3><p>${esc(c.description)}</p><p><b>Requirements:</b> ${esc(c.requirements)}</p><button class="btn ghost" data-claim="${c.id}">Submit claim ↗</button></article>`).join("")||"<p>No active campaigns at the moment.</p>";document.querySelectorAll("[data-claim]").forEach(b=>b.onclick=()=>startClaim(Number(b.dataset.claim)))}catch(e){$("campaignGrid").textContent=e.message}}
+async function refreshMe(){const d=await api("/me");me=d.user;$("accountBtn").textContent=me?me.username+" · My claims":"Sign in"}
+function startClaim(id){if(!me){modal("authModal");return toast("Sign in before submitting a claim.")}const c=campaigns.find(x=>x.id===id);$("campaignId").value=id;$("claimTitle").textContent=c.title;$("claimModal").classList.add("show")}
+async function showClaims(){try{const d=await api("/my-claims");$("claimHistory").innerHTML=d.claims.length?d.claims.map(c=>`<div class="card"><b>${esc(c.title)}</b><p>UID: ${esc(c.player_uid)} · <span class="status">${esc(c.status.toUpperCase())}</span></p><p>${esc(c.admin_note||"No administrator note.")}</p></div>`).join(""):"<p>No claims yet.</p>";modal("claimsModal")}catch(e){toast(e.message)}}
+$("accountBtn").onclick=()=>me?showClaims():modal("authModal");
+$("loginTab").onclick=()=>setMode("login");$("registerTab").onclick=()=>setMode("register");
+$("authForm").onsubmit=async e=>{e.preventDefault();try{let d;if(mode==="login")d=await api("/login",{method:"POST",body:JSON.stringify({identity:$("identity").value,password:$("password").value})});else d=await api("/register",{method:"POST",body:JSON.stringify({username:$("username").value,email:$("email").value,password:$("password").value})});me=d.user;modal("authModal",false);$("accountBtn").textContent=me.username+" · My claims";toast("Welcome, "+me.username);e.target.reset()}catch(err){toast(err.message)}};
+$("claimForm").onsubmit=async e=>{e.preventDefault();try{await api("/claims",{method:"POST",body:JSON.stringify({campaignId:Number($("campaignId").value),playerUid:$("playerUid").value,details:$("details").value})});modal("claimModal",false);e.target.reset();toast("Claim submitted for review.")}catch(err){toast(err.message)}};
+$("logoutBtn").onclick=async()=>{try{await api("/logout",{method:"POST",body:"{}"});me=null;$("accountBtn").textContent="Sign in";modal("claimsModal",false);toast("Signed out")}catch(e){toast(e.message)}};
+document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>document.querySelectorAll(".modal").forEach(m=>m.classList.remove("show")));
+document.querySelectorAll(".modal").forEach(m=>m.onclick=e=>{if(e.target===m)m.classList.remove("show")});
+$("year").textContent=new Date().getFullYear();
+(async()=>{try{const d=await api("/csrf");csrf=d.token;await refreshMe();await loadCampaigns()}catch(e){toast(e.message)}})();
